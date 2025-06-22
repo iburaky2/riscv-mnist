@@ -1,0 +1,42 @@
+`include "disciplines.vams"
+
+module camera (
+  clk_i,
+  rst_ni,
+  capture_i,    // Capture a new image.
+  read_valid_i, // Read next pixel.
+  pixel_o
+);
+  // Ports
+  input  clk_i;
+  input  rst_ni;
+  input  capture_i;
+  input  read_valid_i;
+  output pixel_o;
+
+  wire clk_i;
+  wire rst_ni;
+  wire capture_i;
+  wire read_valid_i;
+  wire[7:0] pixel_o;
+
+  // Internal signals
+  electrical pixel;
+  wire[7:0]  digital_pixel;
+
+  // Module instantiations
+  camera_sensor i_sensor (
+    .clk_i        ( clk_i        ),
+    .rst_ni       ( rst_ni       ),
+    .capture_i    ( capture_i    ),
+    .read_valid_i ( read_valid_i ),
+    .pixel_o      ( pixel        )
+  );
+
+  adc i_adc (
+    .clk_i     ( clk_i   ),
+    .rst_ni    ( rst_ni  ),
+    .analog_i  ( pixel   ),
+    .digital_o ( pixel_o )
+  );
+endmodule

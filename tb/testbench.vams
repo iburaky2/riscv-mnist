@@ -1,0 +1,182 @@
+`include "disciplines.vams"
+
+module testbench;
+
+  // Testbench signals
+  reg clk = 0;
+  reg rst_n = 0;
+
+  // Connection signals
+  wire mem_valid;
+  wire mem_ready;
+  wire [31:0] mem_addr;
+  wire [31:0] mem_data_write;
+  wire [3:0]  mem_write_strobe;
+  wire [31:0] mem_data_read;
+
+  wire cpu_valid;
+  wire cpu_ready;
+  wire [31:0] cpu_addr;
+  wire [31:0] cpu_data_write;
+  wire [3:0]  cpu_write_strobe;
+  wire [31:0] cpu_data_read;
+  wire [7:0]  pixel;
+
+  wire cam_capture;
+  wire cam_read_valid;
+
+  // Module instantiations
+  camera cam (
+    .clk_i        ( clk            ),
+    .rst_ni       ( rst_n          ),
+    .capture_i    ( cam_capture    ),
+    .read_valid_i ( cam_read_valid ),
+    .pixel_o      ( pixel          )
+  );
+
+
+  picorv32 #(
+    .STACKADDR       ( 32'h0001_0000       ),
+    .ENABLE_MUL      ( 1'b1                ),
+    .ENABLE_FAST_MUL ( 1'b1                )
+  ) cpu (
+    .clk             ( clk                 ),
+    .resetn          ( rst_n               ),
+    .trap            ( /* NOT CONNECTED */ ),
+    .mem_valid       ( cpu_valid           ),
+    .mem_instr       ( /* NOT CONNECTED */ ), // Use as von Neumann
+    .mem_ready       ( cpu_ready           ),
+    .mem_addr        ( cpu_addr            ),
+    .mem_wdata       ( cpu_data_write      ),
+    .mem_wstrb       ( cpu_write_strobe    ),
+    .mem_rdata       ( cpu_data_read       ),
+    // Ignore look-ahead interface.
+    .mem_la_read     ( /* NOT CONNECTED */ ),
+    .mem_la_write    ( /* NOT CONNECTED */ ),
+    .mem_la_addr     ( /* NOT CONNECTED */ ),
+    .mem_la_wdata    ( /* NOT CONNECTED */ ),
+    .mem_la_wstrb    ( /* NOT CONNECTED */ ),
+    // Ignore PCPI interface.
+    .pcpi_valid      ( /* NOT CONNECTED */ ),
+    .pcpi_insn       ( /* NOT CONNECTED */ ),
+    .pcpi_rs1        ( /* NOT CONNECTED */ ),
+    .pcpi_rs2        ( /* NOT CONNECTED */ ),
+    .pcpi_wr         ( 1'd0),
+    .pcpi_rd         (32'd0),
+    .pcpi_wait       (1'd0),
+    .pcpi_ready      (1'd0),
+    .irq             ( 32'd0 ),
+    .eoi             ( /* NOT CONNECTED */ )
+  );
+
+  memory mem (
+    .clk_i   ( clk                      ),
+    .rst_ni  ( rst_n                    ),
+    .we_i    ( mem_write_strobe != 4'd0 ),
+    .valid_i ( mem_valid                ),
+    .ready_o ( mem_ready                ),
+    .addr_i  ( mem_addr                 ),
+    .data_i  ( mem_data_write           ),
+    .data_o  ( mem_data_read            ),
+    .wstrb_i ( mem_write_strobe         )
+  );
+
+  memory_mux mux (
+    .cpu_valid_i      ( cpu_valid        ),
+    .cpu_ready_o      ( cpu_ready        ),
+    .cpu_addr_i       ( cpu_addr         ),
+    .cpu_wdata_i      ( cpu_data_write   ),
+    .cpu_wstrb_i      ( cpu_write_strobe ),
+    .cpu_rdata_o      ( cpu_data_read    ),
+    .mem_valid_o      ( mem_valid        ),
+    .mem_ready_i      ( mem_ready        ),
+    .mem_addr_o       ( mem_addr         ),
+    .mem_wdata_o      ( mem_data_write   ),
+    .mem_wstrb_o      ( mem_write_strobe ),
+    .mem_rdata_i      ( mem_data_read    ),
+    .cam_capture_o    ( cam_capture      ),
+    .cam_read_valid_o ( cam_read_valid   ),
+    .cam_pixel_i      ( pixel            )
+  );
+
+  // Clock generator (10ns period)
+  always #5 clk = ~clk;
+
+  integer i;
+  integer correct_count;
+  integer label_file;
+  integer label;
+  integer file_read_success;
+  string filename;
+
+  initial begin
+    // Load the memory.
+    $readmemh("../firmware/firmware.mem", mem.mem);
+
+    // Reset.
+    rst_n = 0;
+    #200;
+    rst_n = 1;
+
+    // CPU starts running, wait until the program is complete.
+    for (i = 0; i < 100; i = i + 1) begin
+      wait(cpu_addr == 32'h2000_0008);
+      $sformat(filename, "../data/test/labels/%0d.txt", i);
+      label_file = $fopen(filename, "r");
+      file_read_success = $fscanf(label_file, "%f\n", label);
+      if (file_read_success != 1) begin
+        $display("ERROR: Can't read from label file.");
+        $display(filename);
+        $stop();
+      end
+      
+      $display(cpu_data_write);
+      $display(label);
+      #100;
+    end
+
+    $stop;
+  end
+
+endmodule
+
+module memory #(
+  parameter DATA_WIDTH = 32,
+  parameter ADDR_WIDTH = 32,
+  parameter STROBE_WIDTH = DATA_WIDTH / 8,
+  parameter NUM_WORDS = 262144
+) (
+  input  wire clk_i,
+  input  wire rst_ni,
+  input  wire we_i,
+  input  wire valid_i,
+  output reg  ready_o,
+  input  wire [ADDR_WIDTH-1:0] addr_i,
+  input  wire [DATA_WIDTH-1:0] data_i,
+  output reg  [DATA_WIDTH-1:0] data_o,
+  input  wire [STROBE_WIDTH-1:0] wstrb_i
+);
+  integer i;
+  reg[DATA_WIDTH-1:0] mem [0:NUM_WORDS-1];
+
+  always @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      ready_o <= 1'b0;
+      data_o  <= {STROBE_WIDTH{1'b0}};
+    end else begin
+      if (valid_i) begin
+        ready_o <= 1'b1;
+        if (we_i) begin
+          for (i = 0; i < STROBE_WIDTH; i = i + 1) begin
+            if (wstrb_i[i]) begin
+              mem[addr_i >> 2][8*i +: 8] <= data_i[8*i +: 8];
+            end
+          end
+        end
+        data_o <= mem[addr_i >> 2];
+      end else begin
+        ready_o <= 1'b0;
+      end
+    end
+  end
+endmodule

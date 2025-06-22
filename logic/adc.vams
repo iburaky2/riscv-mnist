@@ -1,0 +1,37 @@
+`include "disciplines.vams"
+
+module adc (
+  clk_i,
+  rst_ni,
+  analog_i,
+  digital_o
+);
+  // Ports
+  input  clk_i;
+  input  rst_ni;
+  input  analog_i;
+  output[7:0] digital_o;
+
+  wire clk_i;
+  wire rst_ni;
+  electrical analog_i;
+  reg[7:0] digital_o;
+  
+  // Internal signals
+  real sample;
+
+  // Processes
+  always @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      digital_o <= 8'd0;
+    end else begin
+      sample = V(analog_i);
+      if (sample > 1.0) begin
+        sample = 1.0;
+      end else if (sample < 0.0) begin
+        sample = 0.0;
+      end
+        digital_o <= $rtoi(sample * 255.0);
+      end
+  end
+endmodule

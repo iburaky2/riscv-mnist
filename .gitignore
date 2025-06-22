@@ -1,0 +1,9 @@
+.vscode
+data/
+xcelium.d/
+.simvision/
+tmp/
+*.swp
+firmware/firmware.elf
+firmware/firmware.bin
+firmware/firmware.mem

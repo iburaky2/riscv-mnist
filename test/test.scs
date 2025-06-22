@@ -1,0 +1,7 @@
+// Simulation control script used by Xcelium
+simulator lang=spectre
+
+// Set ground node
+global 0
+
+Tran1 tran stop=10s

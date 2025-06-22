@@ -1,0 +1,76 @@
+`include "disciplines.vams"
+
+module camera_sensor (
+  clk_i,
+  rst_ni,
+  capture_i,    // Capture a new image.
+  read_valid_i, // Read next pixel.
+  pixel_o
+);
+  // Ports
+  input  clk_i;
+  input  rst_ni;
+  input  capture_i;
+  input  read_valid_i;
+  output pixel_o;
+
+  wire       clk_i;
+  wire       rst_ni;
+  wire       capture_i;
+  wire       read_valid_i;
+  electrical pixel_o;
+
+  // Internal signals
+  real pixel_intensity;
+  integer i;
+  reg [9:0] pixel_index;
+  string filename;
+  integer image_index;
+  integer image_file;
+  real val;
+  integer file_read_success;
+
+  // Processes
+  always @(posedge clk_i or negedge rst_ni) begin
+    // Reset
+    if (!rst_ni) begin
+      pixel_intensity = 0.0;
+      pixel_index <= 10'd0;
+      image_index <= 0;
+    end else begin
+      // Capture image by reading the image data from dataset files.
+      if (capture_i) begin
+        $sformat(filename, "../data/test/images/%0d.txt", image_index);
+        image_file = $fopen(filename, "r");
+        image_index <= image_index + 1;
+      end
+
+      // Send next pixel each read.
+      if (read_valid_i) begin
+        if (image_file != 0) begin
+          file_read_success = $fscanf(image_file, "%f\n", val);
+          if (file_read_success != 1) begin
+            $display("ERROR: Can't read from image file.");
+            $display(filename);
+            $stop();
+          end
+          pixel_intensity = val / 255.0;
+        end
+
+        if (pixel_index == 10'd783) begin
+          if (image_file != 0) begin
+            $fclose(image_file);
+            pixel_index <= 0;
+          end
+        end else begin
+          pixel_index <= pixel_index + 1;
+        end
+      end
+    end
+  end
+
+  analog begin
+    V(pixel_o) <+ pixel_intensity;
+  end
+
+endmodule
